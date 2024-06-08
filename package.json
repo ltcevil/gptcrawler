@@ -42,7 +42,7 @@
   },
   "scripts": {
     "semantic-release": "semantic-release",
-    "preinstall": "npx playwright install",
+    "preinstall": "npx playwright install chrome webkit ffmpeg",
     "start": "npm run start:dev",
     "start:server": "NODE_ENV=development node swagger.js && npm run build && node dist/src/server.js",
     "start:server:prod": "npm run build && node dist/src/server.js",
