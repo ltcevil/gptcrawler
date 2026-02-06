@@ -1,24 +1,19 @@
-# Specify the base Docker image. You can read more about
-# the available images at https://crawlee.dev/docs/guides/docker-images
-# You can also use any other image from Docker Hub.
+# Specify the base Docker image.
 FROM apify/actor-node-playwright-chrome:18 AS builder
 
 # Copy just package.json and package-lock.json
-# to speed up the build using Docker layer cache.
 COPY --chown=myuser package*.json ./
 
-# Delete the prepare script. It's not needed in the final image.
+# Delete the prepare script.
 RUN npm pkg delete scripts.prepare
 
-# Install all dependencies. Don't audit to speed up the installation.
-RUN npm install --include=dev --audit=false
+# Install all dependencies with --ignore-scripts to skip preinstall
+RUN npm install --include=dev --audit=false --ignore-scripts
 
-# Next, copy the source files using the user set
-# in the base image.
+# Next, copy the source files
 COPY --chown=myuser . ./
 
-# Install all dependencies and build the project.
-# Don't audit to speed up the installation.
+# Build the project
 RUN npm run build
 
 # Create final image
@@ -32,31 +27,22 @@ USER myuser
 # Copy only built JS files from builder image
 COPY --from=builder --chown=myuser /home/myuser/dist ./dist
 
-# Copy just package.json and package-lock.json
-# to speed up the build using Docker layer cache.
+# Copy package.json
 COPY --chown=myuser package*.json ./
 
-# Install NPM packages, skip optional and development dependencies to
-# keep the image small. Avoid logging too much and print the dependency
-# tree for debugging
+# Install NPM packages (prod only)
 RUN npm pkg delete scripts.prepare \
     && npm --quiet set progress=false \
-    && npm install --omit=dev --omit=optional \
-    && echo "Installed NPM packages:" \
-    && (npm list --omit=dev --all || true) \
-    && echo "Node.js version:" \
-    && node --version \
-    && echo "NPM version:" \
-    && npm --version
+    && npm install --omit=dev --omit=optional --ignore-scripts
 
-# Next, copy the remaining files and directories with the source code.
-# Since we do this after NPM install, quick build will be really fast
-# for most source file changes.
+# Force install playwright browsers inside the container to ensure isolation
+RUN npx playwright install --with-deps chrome webkit ffmpeg
+
+# Next, copy the remaining files
 COPY --chown=myuser . ./
 
 # Create data directory
 RUN mkdir -p data
 
-# Run the image. If you know you won't need headful browsers,
-# you can remove the XVFB start script for a micro perf gain.
+# Run the image.
 CMD ./start_xvfb_and_run_cmd.sh && npm run start:server:prod --silent
