@@ -1,15 +1,13 @@
-version: '3.8'
-
 services:
   gptcrawler:
     build: .
     image: gptcrawler:latest
     container_name: gptcrawler
-    ports:
-      - "3000:3000"
+    network_mode: host
     volumes:
-      - ./data:/code/gpt-crawler/data
+      - ./containerapp/data:/code/gpt-crawler/data
     environment:
-      - API_PORT=3000
-      - API_HOST=0.0.0.0
+      - API_PORT=8008
+      - API_HOST=127.0.0.1
     restart: unless-stopped
+    tty: true
