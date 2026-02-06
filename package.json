@@ -22,23 +22,23 @@
     "swagger-ui-express": "^5.0.0"
   },
   "devDependencies": {
-    "@apify/tsconfig": "^0.1.0",
+    "@apify/tsconfig": "^0.1.1",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/release-notes-generator": "^12.1.0",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
     "@types/express-fileupload": "^1.4.4",
-    "@types/inquirer": "^9.0.7",
+    "@types/inquirer": "^9.0.9",
     "@types/node": "^20.0.0",
-    "@types/swagger-ui-express": "^4.1.6",
+    "@types/swagger-ui-express": "^4.1.8",
     "husky": "^8.0.0",
     "prettier": "^3.1.0",
     "semantic-release": "^22.0.8",
     "swagger-autogen": "^2.23.7",
     "ts-node": "^10.8.0",
     "typescript": "^5.0.0",
-    "zod": "^3.22.4"
+    "zod": "^3.25.76"
   },
   "scripts": {
     "semantic-release": "semantic-release",

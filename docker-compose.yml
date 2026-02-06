@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  gptcrawler:
+    build: .
+    image: gptcrawler:latest
+    container_name: gptcrawler
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./containerapp/data:/home/myuser/data
+    environment:
+      - API_PORT=3000
+      - API_HOST=0.0.0.0
+    restart: unless-stopped

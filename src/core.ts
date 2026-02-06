@@ -12,22 +12,40 @@ let crawler: PlaywrightCrawler;
 
 export function getPageHtml(page: Page, selector = "body") {
   return page.evaluate((selector) => {
-    // Check if the selector is an XPath
-    if (selector.startsWith("/")) {
-      const elements = document.evaluate(
-        selector,
-        document,
-        null,
-        XPathResult.ANY_TYPE,
-        null,
-      );
-      let result = elements.iterateNext();
-      return result ? result.textContent || "" : "";
-    } else {
-      // Handle as a CSS selector
-      const el = document.querySelector(selector) as HTMLElement | null;
-      return el?.innerText || "";
+    // Helper to get text from an element
+    const getText = (el: Element | null) => (el as HTMLElement)?.innerText || "";
+
+    // If a specific selector is provided, use it
+    if (selector && selector !== "body") {
+      if (selector.startsWith("/")) {
+        const elements = document.evaluate(
+          selector,
+          document,
+          null,
+          XPathResult.ANY_TYPE,
+          null,
+        );
+        let result = elements.iterateNext();
+        return result ? result.textContent || "" : "";
+      } else {
+        const el = document.querySelector(selector);
+        return getText(el);
+      }
     }
+
+    // Auto-detection: Try common content selectors
+    const candidates = ["main", "article", "#content", ".content", "#main", ".main", "body"];
+    for (const candidate of candidates) {
+      const el = document.querySelector(candidate);
+      const text = getText(el);
+      // specific threshold to avoid empty wrappers
+      if (text.length > 100) {
+        return text; 
+      }
+    }
+    
+    // Fallback to body
+    return document.body.innerText || "";
   }, selector);
 }
 

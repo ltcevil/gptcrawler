@@ -24,6 +24,11 @@ RUN npm run build
 # Create final image
 FROM apify/actor-node-playwright-chrome:18
 
+# Install curl for Telegram notifications
+USER root
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+USER myuser
+
 # Copy only built JS files from builder image
 COPY --from=builder --chown=myuser /home/myuser/dist ./dist
 
@@ -49,6 +54,9 @@ RUN npm pkg delete scripts.prepare \
 # for most source file changes.
 COPY --chown=myuser . ./
 
+# Create data directory
+RUN mkdir -p data
+
 # Run the image. If you know you won't need headful browsers,
 # you can remove the XVFB start script for a micro perf gain.
-CMD ./start_xvfb_and_run_cmd.sh && npm run start:prod --silent
+CMD ./start_xvfb_and_run_cmd.sh && npm run start:server:prod --silent
