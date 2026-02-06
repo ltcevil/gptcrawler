@@ -6,16 +6,20 @@ import { Config, configSchema } from "./config.js";
 import { Page } from "playwright";
 import { isWithinTokenLimit } from "gpt-tokenizer";
 import { PathLike } from "fs";
+import { predictSelector } from "./ai_selector.js";
 
 let pageCounter = 0;
 let crawler: PlaywrightCrawler;
+
+// Cache for predicted selectors to avoid repeated LLM calls per domain/run
+let predictedSelector: string | null = null;
 
 export function getPageHtml(page: Page, selector = "body") {
   return page.evaluate((selector) => {
     // Helper to get text from an element
     const getText = (el: Element | null) => (el as HTMLElement)?.innerText || "";
 
-    // If a specific selector is provided, use it
+    // If a specific selector is provided and valid, use it
     if (selector && selector !== "body") {
       if (selector.startsWith("/")) {
         const elements = document.evaluate(
@@ -33,19 +37,58 @@ export function getPageHtml(page: Page, selector = "body") {
       }
     }
 
-    // Auto-detection: Try common content selectors
-    const candidates = ["main", "article", "#content", ".content", "#main", ".main", "body"];
-    for (const candidate of candidates) {
-      const el = document.querySelector(candidate);
-      const text = getText(el);
-      // specific threshold to avoid empty wrappers
-      if (text.length > 100) {
-        return text; 
+    // Advanced Auto-detection: Score elements to find the best content candidate
+    const scoreElement = (el: HTMLElement) => {
+      let score = 0;
+      const text = el.innerText || "";
+      const len = text.length;
+      
+      // Ignore elements with too little text
+      if (len < 100) return 0;
+
+      // Base score from logarithmic length (longer text is better, but diminishing returns)
+      score += Math.log(len) * 10;
+
+      const tagName = el.tagName.toLowerCase();
+      if (tagName === 'article') score += 20;
+      if (tagName === 'main') score += 20;
+      if (tagName === 'div' || tagName === 'section') score += 5;
+
+      const className = (el.className || "").toLowerCase();
+      const id = (el.id || "").toLowerCase();
+      const combined = className + " " + id;
+
+      // Positive signals
+      if (combined.includes('article') || combined.includes('content') || combined.includes('post') || combined.includes('body') || combined.includes('main')) {
+        score += 15;
       }
-    }
-    
-    // Fallback to body
-    return document.body.innerText || "";
+      
+      // Negative signals (boilerplate)
+      if (combined.includes('nav') || combined.includes('sidebar') || combined.includes('footer') || combined.includes('header') || combined.includes('menu') || combined.includes('copyright')) {
+        score -= 25;
+      }
+      
+      return score;
+    };
+
+    // Candidate selection: Look at semantic tags and common containers
+    const candidates = document.querySelectorAll('article, main, div, section, .content, #content, .post, #post');
+    let bestEl: HTMLElement = document.body;
+    let bestScore = 0;
+
+    candidates.forEach((el) => {
+       const htmlEl = el as HTMLElement;
+       // Skip invisible elements
+       if (htmlEl.offsetParent === null) return;
+       
+       const s = scoreElement(htmlEl);
+       if (s > bestScore) {
+         bestScore = s;
+         bestEl = htmlEl;
+       }
+    });
+
+    return bestEl.innerText || document.body.innerText || "";
   }, selector);
 }
 
@@ -68,6 +111,9 @@ export async function waitForXPath(page: Page, xpath: string, timeout: number) {
 
 export async function crawl(config: Config) {
   configSchema.parse(config);
+  
+  // Reset cache for new crawl run
+  predictedSelector = null;
 
   if (process.env.NO_CRAWL !== "true") {
     // PlaywrightCrawler crawls the web using a headless
@@ -81,6 +127,54 @@ export async function crawl(config: Config) {
           log.info(
             `Crawling: Page ${pageCounter} / ${config.maxPagesToCrawl} - URL: ${request.loadedUrl}...`,
           );
+
+          // Auto-detect selector using GenAI if not provided
+          if (!config.selector && !predictedSelector) {
+             try {
+                 log.info("No selector provided. Analyzing page with GenAI to identify main content...");
+                 
+                 // Extract a clean structure snippet
+                 const htmlSnippet = await page.evaluate(() => {
+                     const cleanNode = (node: Element) => {
+                         const clone = node.cloneNode(false) as Element;
+                         // Keep only significant attributes
+                         const id = node.id;
+                         const cls = node.className;
+                         if (id) clone.id = id;
+                         if (cls) clone.className = cls;
+                         return clone;
+                     };
+                     
+                     // Get first 3 levels of depth from body
+                     const structure = [];
+                     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+                     let currentNode = walker.currentNode;
+                     let depth = 0;
+                     
+                     // Simple simplified structure capture (just outer containers)
+                     // A real implementation might be more recursive, but let's grab main tags
+                     const candidates = document.querySelectorAll('body > *, main > *, article > *, #content > *, .content > *');
+                     let output = "";
+                     candidates.forEach(el => {
+                         const tagName = el.tagName.toLowerCase();
+                         const id = el.id ? `#${el.id}` : "";
+                         const cls = el.className ? `.${el.className.replace(/\s+/g, ".")}` : "";
+                         output += `<${tagName}${id}${cls}>\n`;
+                     });
+                     
+                     return output.slice(0, 2000); // Limit context
+                 });
+
+                 predictedSelector = await predictSelector(htmlSnippet, request.loadedUrl);
+                 config.selector = predictedSelector;
+                 log.info(`GenAI determined selector: ${config.selector}`);
+             } catch (e) {
+                 log.warning(`GenAI selector prediction failed: ${e}. Falling back to auto-detection.`);
+             }
+          } else if (predictedSelector && !config.selector) {
+              // Reuse predicted selector for subsequent pages if config.selector was empty
+              config.selector = predictedSelector;
+          }
 
           // Use custom handling for XPath selector
           if (config.selector) {

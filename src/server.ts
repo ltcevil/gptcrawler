@@ -42,6 +42,13 @@ async function notifyTelegram(filePath: string, sourceUrl: string) {
 // Define a POST route to accept config and run the crawler
 app.post("/crawl", async (req, res) => {
   const config: Config = req.body;
+
+  // Auto-generate match pattern if URL is present but match is missing
+  if (config.url && !config.match) {
+    const baseUrl = config.url.endsWith("/") ? config.url.slice(0, -1) : config.url;
+    config.match = `${baseUrl}/**`;
+  }
+
   try {
     const validatedConfig = configSchema.parse(config);
     const crawler = new GPTCrawlerCore(validatedConfig);

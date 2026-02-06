@@ -7,6 +7,8 @@
   },
   "description": "Crawl a site to generate knowledge files to create your own custom GPT",
   "dependencies": {
+    "@langchain/core": "^1.1.19",
+    "@langchain/google-genai": "^2.1.15",
     "commander": "^11.1.0",
     "cors": "^2.8.5",
     "crawlee": "^3.0.0",
@@ -17,6 +19,7 @@
     "glob": "^10.3.10",
     "gpt-tokenizer": "^2.1.2",
     "inquirer": "^9.2.12",
+    "openai": "^6.18.0",
     "playwright": "*",
     "prettier": "^3.1.0",
     "swagger-ui-express": "^5.0.0"
