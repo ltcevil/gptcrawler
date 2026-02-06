@@ -1,5 +1,7 @@
 # configurations
 .idea
+.husky
+.env
 
 # crawlee and apify storage folders
 apify_storage
@@ -10,4 +12,4 @@ storage
 node_modules
 
 # ignore base image 'main.js'
-main.js
+main.js≈

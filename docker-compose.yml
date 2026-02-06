@@ -6,8 +6,16 @@ services:
     network_mode: host
     volumes:
       - ./containerapp/data:/code/gpt-crawler/data
+      - browsers:/root/.cache/ms-playwright/
+
     environment:
       - API_PORT=8008
       - API_HOST=127.0.0.1
     restart: unless-stopped
     tty: true
+volumes:
+  browsers:
+    driver_opts:
+      type: "none"
+      o: "bind"
+      device: "/opt/browsers"
