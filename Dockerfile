@@ -1,35 +1,35 @@
-# Specify the base Docker image.
-FROM apify/actor-node-playwright-chrome:18
+FROM ubuntu:jammy
+ENV GIT_PYTHON_REFRESH=quiet
+# Set a non-interactive frontend for automated setups.
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Set working directory
-WORKDIR /home/myuser
+# Install Git and tools
+RUN apt-get update && \
+    apt-get install sudo -y && \
+    apt-get install git curl wget telnet rsync procps nano mc -y
 
-# Install curl for Telegram notifications
-USER root
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-USER myuser
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
 
-# Copy package files
-COPY --chown=myuser package*.json ./
+# Setup directory structure
+RUN mkdir /code
+RUN cd /code && mkdir data && mkdir gpt-crawler
+WORKDIR /code/gpt-crawler
 
-# Delete the prepare script.
-RUN npm pkg delete scripts.prepare
+# Copy source code
+COPY . .
 
-# Install all dependencies (including dev for build)
-# Using --ignore-scripts to prevent playwright from breaking the build
-RUN npm install --audit=false --ignore-scripts
-
-# Copy the rest of the source code
-COPY --chown=myuser . ./
+# Install dependencies and isolated playwright browsers
+RUN npm i && \
+    npx playwright install chrome webkit ffmpeg && \
+    npx playwright install-deps
 
 # Build the project locally
 RUN npm run build
 
-# Force install playwright browsers inside the container to ensure isolation
-RUN npx playwright install --with-deps chrome webkit ffmpeg
+# Ensure the data directory is available for output
+VOLUME /code/data
 
-# Create data directory for local mounting
-RUN mkdir -p data
-
-# Run the image starting the server
-CMD ./start_xvfb_and_run_cmd.sh && npm run start:server:prod --silent
+# Start the server
+CMD ["npm", "run", "start:server:prod"]
