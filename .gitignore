@@ -7,7 +7,7 @@ apify_storage
 crawlee_storage
 storage
 .DS_Store
-
+evils.json
 !package.json
 !package-lock.json
 !tsconfig.json
