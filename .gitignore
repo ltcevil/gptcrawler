@@ -15,4 +15,5 @@ evils.json
 # any output from the crawler
 *.json
 .env
+*.md
 pnpm-lock.yaml
