@@ -42,6 +42,46 @@ async function notifyTelegram(filePath: string, sourceUrl: string) {
 // Define a POST route to accept config and run the crawler
 app.post("/crawl", async (req, res) => {
   const config: Config = req.body;
+
+  // Apply rate limiting defaults from environment variables
+  if (config.maxConcurrency === undefined && process.env.MAX_CONCURRENCY) {
+    config.maxConcurrency = parseInt(process.env.MAX_CONCURRENCY);
+  }
+  if (config.requestDelay === undefined && process.env.REQUEST_DELAY) {
+    config.requestDelay = parseInt(process.env.REQUEST_DELAY);
+  }
+  if (config.maxRequestRetries === undefined && process.env.MAX_REQUEST_RETRIES) {
+    config.maxRequestRetries = parseInt(process.env.MAX_REQUEST_RETRIES);
+  }
+  
+  // Apply proxy URLs from environment if not provided
+  if (!config.proxyUrls && process.env.PROXY_URLS) {
+    config.proxyUrls = process.env.PROXY_URLS.split(',').map(p => p.trim()).filter(p => p);
+  }
+
+  // Auto-generate match pattern if URL is present but match is missing
+  if (config.url && !config.match) {
+    try {
+      const urlObj = new URL(config.url);
+      const pathParts = urlObj.pathname.split('/').filter(p => p);
+      
+      // Go back one level (remove last segment) and add /**
+      // Example: /belfold/2026/02/07/article/ -> /belfold/2026/02/07/**
+      if (pathParts.length > 0) {
+        pathParts.pop(); // Remove last segment
+      }
+      
+      const basePath = pathParts.length > 0 ? '/' + pathParts.join('/') : '';
+      config.match = `${urlObj.protocol}//${urlObj.host}${basePath}/**`;
+      
+      console.log(`Auto-generated match pattern: ${config.match}`);
+    } catch (e) {
+      // Fallback to old behavior if URL parsing fails
+      const baseUrl = config.url.endsWith("/") ? config.url.slice(0, -1) : config.url;
+      config.match = `${baseUrl}/**`;
+    }
+  }
+
   try {
     const validatedConfig = configSchema.parse(config);
     const crawler = new GPTCrawlerCore(validatedConfig);

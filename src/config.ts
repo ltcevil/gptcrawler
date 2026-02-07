@@ -19,7 +19,7 @@ export const configSchema = z.object({
    * @example "https://www.builder.io/c/docs/**"
    * @default ""
    */
-  match: z.string().or(z.array(z.string())),
+  match: z.string().or(z.array(z.string())).optional(),
   /**
    * Pattern to match against for links on a page to exclude from crawling
    * @example "https://www.builder.io/c/docs/**"
@@ -27,9 +27,9 @@ export const configSchema = z.object({
    */
   exclude: z.string().or(z.array(z.string())).optional(),
   /**
-   * Selector to grab the inner text from
+   * Selector to grab the inner text from. If not provided, will auto-detect using AI.
    * @example ".docs-builder-container"
-   * @default ""
+   * @default undefined (auto-detect with AI)
    */
   selector: z.string().optional(),
   /**
@@ -38,10 +38,11 @@ export const configSchema = z.object({
    */
   maxPagesToCrawl: z.number().int().positive(),
   /**
-   * File name for the finished data
-   * @default "output.json"
+   * File name for the finished data. If not provided, auto-generates from URL and date.
+   * @example "output.json" or "mydocs.md"
+   * @default Auto-generated: "{domain}-{date}.md"
    */
-  outputFileName: z.string(),
+  outputFileName: z.string().optional(),
   /** Optional cookie to be set. E.g. for Cookie Consent */
   cookie: z
     .union([
@@ -85,6 +86,38 @@ export const configSchema = z.object({
    * @example 5000
    */
   maxTokens: z.number().int().positive().optional(),
+  /** Output format: 'json' (default) or 'markdown'
+   * @default 'markdown'
+   */
+  outputFormat: z.enum(['json', 'markdown']).default('markdown').optional(),
+  /** Enable text chunking for RAG applications
+   * @default true
+   */
+  enableChunking: z.boolean().default(true).optional(),
+  /** Chunk size in tokens for text splitting
+   * @default 1000
+   */
+  chunkSize: z.number().int().positive().default(1000).optional(),
+  /** Chunk overlap in tokens for text splitting
+   * @default 200
+   */
+  chunkOverlap: z.number().int().positive().default(200).optional(),
+  /** Maximum concurrent requests to prevent rate limiting
+   * @default 1
+   */
+  maxConcurrency: z.number().int().positive().default(1).optional(),
+  /** Delay between requests in milliseconds
+   * @default 2000
+   */
+  requestDelay: z.number().int().nonnegative().default(2000).optional(),
+  /** Maximum retries for failed requests
+   * @default 3
+   */
+  maxRequestRetries: z.number().int().nonnegative().default(3).optional(),
+  /** List of SOCKS5 proxy URLs for rotation (e.g., ["socks5://user:pass@host:port"])
+   * @default undefined (no proxy)
+   */
+  proxyUrls: z.array(z.string()).optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

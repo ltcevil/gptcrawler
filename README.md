@@ -87,8 +87,40 @@ type Config = {
   maxFileSize?: number;
   /** Optional maximum number tokens to include in the output file */
   maxTokens?: number;
+  /** Output format: 'json' (default) or 'markdown' */
+  outputFormat?: 'json' | 'markdown';
+  /** Enable text chunking for RAG applications */
+  enableChunking?: boolean;
+  /** Chunk size in tokens for text splitting (default: 1000) */
+  chunkSize?: number;
+  /** Chunk overlap in tokens for text splitting (default: 200) */
+  chunkOverlap?: number;
 };
 ```
+
+**New Markdown & Chunking Features:**
+
+For RAG (Retrieval Augmented Generation) applications, you can now output content in markdown format with automatic text chunking:
+
+```ts
+export const defaultConfig: Config = {
+  url: "https://docs.example.com",
+  match: "https://docs.example.com/**",
+  selector: ".documentation",
+  maxPagesToCrawl: 50,
+  outputFileName: "output.json",
+  outputFormat: "markdown",        // Convert HTML to markdown
+  enableChunking: true,            // Split content into chunks
+  chunkSize: 1000,                 // ~1000 tokens per chunk
+  chunkOverlap: 200,               // 200 token overlap between chunks
+};
+```
+
+This configuration:
+- Converts HTML to clean markdown (preserves code blocks, headings, lists)
+- Splits content into chunks suitable for embeddings
+- Each page includes both full markdown and individual chunks
+- Perfect for use with LangChain, LlamaIndex, or other RAG frameworks
 
 #### Run your crawler
 

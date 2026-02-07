@@ -6,7 +6,7 @@ import { Config, configSchema } from "./config.js";
 import { Page } from "playwright";
 import { isWithinTokenLimit } from "gpt-tokenizer";
 import { PathLike } from "fs";
-import { predictSelector } from "./ai_selector.js";
+import { predictSelector, validateSelector } from "./ai_selector.js";
 import TurndownService from "turndown";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
@@ -15,15 +15,6 @@ let crawler: PlaywrightCrawler;
 
 // Cache for predicted selectors to avoid repeated LLM calls per domain/run
 let predictedSelector: string | null = null;
-
-// Proxy rotation state
-let proxyIndex = 0;
-function getNextProxy(proxyUrls?: string[]): string | undefined {
-  if (!proxyUrls || proxyUrls.length === 0) return undefined;
-  const proxy = proxyUrls[proxyIndex];
-  proxyIndex = (proxyIndex + 1) % proxyUrls.length;
-  return proxy;
-}
 
 // Helper to generate filename from URL
 function generateFilename(url: string, outputFormat: string = 'markdown'): string {
@@ -287,76 +278,12 @@ export async function crawl(config: Config) {
     config.outputFileName = generateFilename(config.url, config.outputFormat);
   }
   
-  // Log proxy configuration
-  if (config.proxyUrls && config.proxyUrls.length > 0) {
-    console.log(`🔄 Proxy rotation enabled with ${config.proxyUrls.length} proxies:`);
-    config.proxyUrls.forEach((proxy, idx) => {
-      // Mask password in log
-      const maskedProxy = proxy.replace(/:([^:@]+)@/, ':***@');
-      console.log(`  ${idx + 1}. ${maskedProxy}`);
-    });
-  }
-  
   // Reset cache for new crawl run
   predictedSelector = null;
 
   if (process.env.NO_CRAWL !== "true") {
     // PlaywrightCrawler crawls the web using a headless
     // browser controlled by the Playwright library.
-    
-    // Select a random proxy if available and parse it
-    let proxyConfig: { server: string; username?: string; password?: string } | undefined;
-    let proxyArgs: string[] = [];
-    
-    if (config.proxyUrls && config.proxyUrls.length > 0) {
-      const selectedProxy = config.proxyUrls[Math.floor(Math.random() * config.proxyUrls.length)];
-      
-      // Parse proxy URL - supports http, https, socks5
-      // Pattern: protocol://[user:pass@]host:port
-      const proxyMatch = selectedProxy.match(/^(https?|socks5):\/\/(?:([^:]+):([^@]+)@)?(.+)$/);
-      if (proxyMatch) {
-        const [, protocol, username, password, server] = proxyMatch;
-        
-        // For SOCKS5 with auth, use Chrome launch args ONLY (not proxyConfig)
-        // Chromium cannot handle SOCKS5 auth via Playwright's proxy config
-        if (protocol === 'socks5' && username && password) {
-          console.log(`🔧 Using Chrome launch args for SOCKS5 with authentication`);
-          // Note: Chrome launch args don't support auth in proxy-server flag
-          // We'll use HTTP CONNECT method instead
-          proxyArgs = [
-            `--proxy-server=${protocol}://${server}`,
-          ];
-          // Store credentials for potential use
-          proxyConfig = {
-            server: `${protocol}://${server}`,
-            username,
-            password
-          };
-        } else if (protocol === 'socks5') {
-          // SOCKS5 without auth - use launch args
-          console.log(`🔧 Using Chrome launch args for SOCKS5 (no auth)`);
-          proxyArgs = [`--proxy-server=${protocol}://${server}`];
-        } else {
-          // HTTP/HTTPS - use standard Playwright proxy config
-          proxyConfig = {
-            server: `${protocol}://${server}`,
-            ...(username && password ? { username, password } : {})
-          };
-        }
-        
-        const maskedProxy = selectedProxy.replace(/:([^:@]+)@/, ':***@');
-        console.log(`🌐 Selected proxy for this crawl session: ${maskedProxy}`);
-        if (proxyConfig) {
-          console.log(`   Playwright config: ${proxyConfig.server}, Auth: ${proxyConfig.username ? 'Yes' : 'No'}`);
-        }
-        if (proxyArgs.length > 0) {
-          console.log(`   Chrome args: ${proxyArgs.join(' ')}`);
-        }
-      } else {
-        console.warn(`⚠️  Invalid proxy URL format: ${selectedProxy}`);
-      }
-    }
-    
     crawler = new PlaywrightCrawler(
       {
         // Use the requestHandler to process each of the crawled pages.
@@ -367,15 +294,46 @@ export async function crawl(config: Config) {
             `Crawling: Page ${pageCounter} / ${config.maxPagesToCrawl} - URL: ${request.loadedUrl}...`,
           );
 
-          // Auto-detect selector using Hybrid approach (Scoring + AI) if not provided
+          // Auto-detect selector using GenAI if not provided
           if (!config.selector && !predictedSelector) {
              try {
-                 log.info("No selector provided. Running hybrid selector detection (Scoring + AI)...");
+                 log.info("No selector provided. Analyzing page with GenAI to identify main content...");
                  
-                 // Use the new hybrid approach: scoring + AI
-                 predictedSelector = await predictSelector(page, request.loadedUrl || "");
+                 // Extract a clean structure snippet
+                 const htmlSnippet = await page.evaluate(() => {
+                     const cleanNode = (node: Element) => {
+                         const clone = node.cloneNode(false) as Element;
+                         // Keep only significant attributes
+                         const id = node.id;
+                         const cls = node.className;
+                         if (id) clone.id = id;
+                         if (cls) clone.className = cls;
+                         return clone;
+                     };
+                     
+                     // Get first 3 levels of depth from body
+                     const structure = [];
+                     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+                     let currentNode = walker.currentNode;
+                     let depth = 0;
+                     
+                     // Simple simplified structure capture (just outer containers)
+                     // A real implementation might be more recursive, but let's grab main tags
+                     const candidates = document.querySelectorAll('body > *, main > *, article > *, #content > *, .content > *');
+                     let output = "";
+                     candidates.forEach(el => {
+                         const tagName = el.tagName.toLowerCase();
+                         const id = el.id ? `#${el.id}` : "";
+                         const cls = el.className ? `.${el.className.replace(/\s+/g, ".")}` : "";
+                         output += `<${tagName}${id}${cls}>\n`;
+                     });
+                     
+                     return output.slice(0, 2000); // Limit context
+                 });
+
+                 predictedSelector = await predictSelector(htmlSnippet, request.loadedUrl || "");
                  config.selector = predictedSelector;
-                 log.info(`Selected: ${config.selector}`);
+                 log.info(`GenAI determined selector: ${config.selector}`);
              } catch (e) {
                  log.warning(`GenAI selector prediction failed: ${e}. Falling back to auto-detection.`);
              }
@@ -426,23 +384,6 @@ export async function crawl(config: Config) {
         },
         // Comment this option to scrape the full website.
         maxRequestsPerCrawl: config.maxPagesToCrawl,
-        // Rate limiting to prevent 429 errors
-        maxConcurrency: config.maxConcurrency || 1,
-        maxRequestRetries: config.maxRequestRetries || 3,
-        requestHandlerTimeoutSecs: 60,
-        // Proxy configuration
-        // For SOCKS5 with auth: use args only (don't set proxy config - causes conflicts)
-        // For HTTP/HTTPS: use proxy config (supports auth natively)
-        ...((proxyConfig && proxyArgs.length === 0) || proxyArgs.length > 0 ? {
-          launchContext: {
-            launchOptions: {
-              // Only include proxy config for HTTP/HTTPS (not SOCKS5 with auth)
-              ...(proxyConfig && proxyArgs.length === 0 ? { proxy: proxyConfig } : {}),
-              // Include args for SOCKS5
-              ...(proxyArgs.length > 0 ? { args: proxyArgs } : {}),
-            },
-          },
-        } : {}),
         // Uncomment this option to see the browser window.
         // headless: false,
         preNavigationHooks: [
@@ -472,16 +413,6 @@ export async function crawl(config: Config) {
             log.info(
               `Aborting requests for as this is a resource excluded route`,
             );
-          },
-        ],
-        postNavigationHooks: [
-          // Add delay between requests to prevent rate limiting
-          async ({ log }) => {
-            const delay = config.requestDelay || 2000;
-            if (delay > 0) {
-              log.info(`Waiting ${delay}ms before next request to prevent rate limiting...`);
-              await new Promise(resolve => setTimeout(resolve, delay));
-            }
           },
         ],
       },

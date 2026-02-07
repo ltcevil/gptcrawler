@@ -7,10 +7,25 @@ services:
     volumes:
       - ./containerapp/data:/code/gpt-crawler/data
       - browsers:/root/.cache/ms-playwright/
-
+      - ./src:/code/gpt-crawler/src
+      - ./package.json:/code/gpt-crawler/package.json
+      - ./package-lock.json:/code/gpt-crawler/package-lock.json
+      - ./tsconfig.json:/code/gpt-crawler/tsconfig.json
+      - ./node_modules:/code/gpt-crawler/node_modules
+    env_file:
+      - .env
     environment:
       - API_PORT=8008
       - API_HOST=127.0.0.1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - GEMINI_TEMPERATURE=${GEMINI_TEMPERATURE:-0.1}
+      - GEMINI_MAX_TOKENS=${GEMINI_MAX_TOKENS:-100}
+      - MAX_CONCURRENCY=${MAX_CONCURRENCY:-1}
+      - REQUEST_DELAY=${REQUEST_DELAY:-2000}
+      - MAX_REQUEST_RETRIES=${MAX_REQUEST_RETRIES:-3}
+      - PROXY_URLS=${PROXY_URLS}
     restart: unless-stopped
     tty: true
 volumes:
