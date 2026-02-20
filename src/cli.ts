@@ -20,6 +20,17 @@ const messages = {
 
 function generateMatchPattern(url: string): string {
   if (!url) return "";
+  
+  try {
+    // If it's a sitemap, we want to match the whole domain (or origin)
+    if (url.toLowerCase().endsWith(".xml")) {
+      const urlObj = new URL(url);
+      return `${urlObj.origin}/**`;
+    }
+  } catch (e) {
+    // ignore invalid URLs, fallback below
+  }
+
   // Ensure we don't end up with //** if the url ends with /
   const baseUrl = url.endsWith("/") ? url.slice(0, -1) : url;
   return `${baseUrl}/**`;
@@ -56,7 +67,7 @@ async function handler(options: Config & { config?: string }) {
       exclude: exclude || fileConfig.exclude || [],
       selector: selector || fileConfig.selector || "",
       maxPagesToCrawl: maxPagesToCrawlStr ? maxPagesToCrawl : (fileConfig.maxPagesToCrawl || 50),
-      outputFileName: outputFileName !== "output.json" ? outputFileName : (fileConfig.outputFileName || "output.json"),
+      outputFileName: outputFileName || fileConfig.outputFileName,
     };
 
     // Auto-generate match pattern if URL is present but match is missing
@@ -110,6 +121,7 @@ async function handler(options: Config & { config?: string }) {
 program.version(version).description(description);
 
 program
+  .argument("[url]", "The URL to crawl")
   .option("-u, --url <string>", messages.url, "")
   .option("-m, --match <string>", messages.match, "")
   .option("-e, --exclude <string>", "URL pattern to exclude", "")
@@ -118,9 +130,14 @@ program
   .option(
     "-o, --outputFileName <string>",
     messages.outputFileName,
-    "output.json",
   )
   .option("-c, --config <string>", "Path to a JSON config file")
-  .action(handler);
+  .action((urlArg, options) => {
+    // If positional argument found, override options.url
+    if (urlArg && typeof urlArg === 'string') {
+      options.url = urlArg;
+    }
+    handler(options);
+  });
 
 program.parse();

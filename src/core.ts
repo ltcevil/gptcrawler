@@ -70,7 +70,7 @@ turndownService.addRule('removeJunk', {
     const id = (node.id || '').toLowerCase();
     const combined = className + ' ' + id;
     
-    // Remove ads, tracking, social media, navigation
+    // Remove ads, tracking, social media, navigation, consent banners
     return (
       combined.includes('nav') || combined.includes('sidebar') || 
       combined.includes('footer') || combined.includes('header') ||
@@ -82,7 +82,12 @@ turndownService.addRule('removeJunk', {
       combined.includes('rubicon') || combined.includes('tracking') ||
       combined.includes('promo') || combined.includes('widget') ||
       combined.includes('banner') || combined.includes('popup') ||
-      combined.includes('cookie') || combined.includes('newsletter')
+      combined.includes('cookie') || combined.includes('newsletter') ||
+      combined.includes('consent') || combined.includes('gdpr') ||
+      combined.includes('privacy') || combined.includes('cmp') ||
+      combined.includes('toolbar') || combined.includes('topbar') ||
+      combined.includes('menu') || combined.includes('toc') ||
+      combined.includes('table-of-contents') || combined.includes('sphinxsidebar')
     );
   },
   replacement: function () {
@@ -97,14 +102,35 @@ turndownService.addRule('removeScripts', {
   }
 });
 
-turndownService.addRule('removeSocialImages', {
+// Remove SVG elements (icons, decorative graphics)
+turndownService.addRule('removeSvg', {
+  filter: function (node) {
+    return node.nodeName === 'svg' || node.nodeName === 'SVG';
+  },
+  replacement: function () {
+    return '';
+  }
+});
+
+// Remove tracking pixels and non-content images
+turndownService.addRule('removeTrackingImages', {
   filter: function (node) {
     if (node.nodeName === 'IMG') {
       const src = (node.getAttribute('src') || '').toLowerCase();
       const alt = (node.getAttribute('alt') || '').toLowerCase();
-      return src.includes('logo') || src.includes('social') || 
-             alt.includes('logo') || alt.includes('követem') || 
-             alt.includes('facebook') || alt.includes('twitter');
+      const width = parseInt(node.getAttribute('width') || '999', 10);
+      const height = parseInt(node.getAttribute('height') || '999', 10);
+      // Remove 1x1 tracking pixels
+      if (width <= 2 && height <= 2) return true;
+      // Remove known tracking/analytics pixel URLs
+      if (src.includes('pixel') || src.includes('beacon') || src.includes('tracker') ||
+          src.includes('analytics') || src.includes('gemius') || src.includes('doubleclick') ||
+          src.includes('facebook.com/tr') || src.includes('google-analytics') ||
+          src.includes('rubiconproject') || src.includes('adocean')) return true;
+      // Remove logos and social icons
+      if (src.includes('logo') || src.includes('social') || 
+           alt.includes('logo') || alt.includes('követem') || 
+           alt.includes('facebook') || alt.includes('twitter')) return true;
     }
     return false;
   },
@@ -165,9 +191,15 @@ export function getPageHtml(page: Page, selector = "body") {
       }
       
       // Negative signals (boilerplate)
-      if (combined.includes('nav') || combined.includes('sidebar') || combined.includes('footer') || combined.includes('header') || combined.includes('menu') || combined.includes('copyright')) {
+      if (combined.includes('nav') || combined.includes('sidebar') || combined.includes('footer') || combined.includes('header') || combined.includes('menu') || combined.includes('copyright') || combined.includes('cookie') || combined.includes('consent') || combined.includes('gdpr') || combined.includes('toc') || combined.includes('breadcrumb')) {
         score -= 25;
       }
+
+      // Penalize link-heavy elements (navigation, TOC, link lists)
+      const links = el.querySelectorAll('a');
+      const linkText = Array.from(links).reduce((sum, a) => sum + (a.textContent?.length || 0), 0);
+      const linkDensity = len > 0 ? linkText / len : 0;
+      if (linkDensity > 0.5) score -= 30;
       
       return score;
     };
@@ -222,7 +254,7 @@ async function processContent(html: string, config: Config) {
   // Convert HTML to markdown
   let markdown = turndownService.turndown(html);
   
-  // Post-process to clean up common issues
+  // Post-process to clean up common issues and optimize for vectorization
   markdown = markdown
     // Remove empty links
     .replace(/\[]\(.*?\)/g, '')
@@ -240,14 +272,38 @@ async function processContent(html: string, config: Config) {
     .replace(/Play\/Pause.*?Live/gi, '')
     .replace(/\d+ seconds of \d+ seconds/gi, '')
     .replace(/Volume \d+%/gi, '')
-    // Remove tracking URLs
-    .replace(/https?:\/\/.*?(hit\.gemius|rubiconproject|doubleclick|google-analytics).*?(\s|$)/g, '')
-    // Clean up multiple consecutive blank lines
-    .replace(/\n{3,}/g, '\n\n')
-    // Remove orphaned list items with just dashes
-    .replace(/^\s*-\s*$/gm, '')
+    // Remove tracking/analytics URLs
+    .replace(/https?:\/\/.*?(hit\.gemius|rubiconproject|doubleclick|google-analytics|indexstat|pixel\.php|beacon|facebook\.com\/tr).*?(\s|$)/g, '')
+    // Remove tracking pixel image references
+    .replace(/!\[pixel\]\(.*?\)/gi, '')
+    .replace(/!\[]\(.*?(pixel|beacon|tracker|analytics).*?\)/gi, '')
+    // Remove all remaining image references (images don't vectorize)
+    .replace(/!\[.*?\]\(.*?\)/g, '')
+    // Remove cookie consent / GDPR blocks (multi-line: paragraph starting with consent keywords)
+    .replace(/^.*?(Az Ön adatainak védelme|cookie-?kat? használ|sütiket.*?használ|adatkezelés|hozzájárulás).*$(\n.*$){0,15}/gmi, '')
+    .replace(/^.*?(We use cookies|Cookie Policy|Privacy Policy|Adatvédelmi|consent to|accept cookies).*$(\n.*$){0,10}/gmi, '')
+    // Remove "Last modified" boilerplate
+    .replace(/^Last modified:.*$/gm, '')
+    // Remove navigation-only lines: lines that are just a markdown link with no surrounding prose
+    .replace(/^-\s*\[.*?\]\(https?:\/\/.*?\)\s*$/gm, '')
+    // Remove lines that are only an internal anchor link (TOC entries)
+    .replace(/^-\s*\[.*?\]\(#.*?\)\s*$/gm, '')
+    // Remove standalone link lines (no list marker)
+    .replace(/^\[.*?\]\(https?:\/\/(?!.*\s).*?\)\s*$/gm, '')
+    // Remove "Contents" / "Table of Contents" headings left behind
+    .replace(/^#{1,6}\s*(Contents|Table of Contents)\s*$/gim, '')
     // Remove lines with only javascript-like content
     .replace(/^.*?(function\(|var |window\.|document\.).*?$/gm, '')
+    // Remove orphaned list items with just dashes or bullets
+    .replace(/^\s*[-*]\s*$/gm, '')
+    // Remove orphaned horizontal rules between cleaned sections
+    .replace(/(\n\s*\* \* \*\s*\n){2,}/g, '\n\n* * *\n\n')
+    // Remove standalone separator lines that are now orphaned
+    .replace(/^\s*[-*_]{3,}\s*$/gm, '---')
+    // Remove consecutive separators
+    .replace(/(---\n){2,}/g, '---\n')
+    // Clean up multiple consecutive blank lines
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
   
   // If chunking is enabled, split the content
